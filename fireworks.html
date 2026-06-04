@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>🎆 为她燃放烟花</title>
+<style>
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  body {
+    background: #000;
+    overflow: hidden;
+    font-family: 'Arial', sans-serif;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  canvas {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+  }
+
+  /* ── 底部提示 ── */
+  .hint {
+    position: fixed;
+    bottom: 40px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 15px;
+    letter-spacing: 3px;
+    pointer-events: none;
+    z-index: 10;
+    animation: hintPulse 2.5s ease-in-out infinite;
+    text-shadow: 0 0 12px rgba(255, 180, 150, 0.5);
+    transition: opacity 0.8s ease;
+    white-space: nowrap;
+  }
+
+  @keyframes hintPulse {
+    0%, 100% { opacity: 0.35; }
+    50% { opacity: 0.9; }
+  }
+
+  /* ── 消息层 ── */
+  .message-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    z-index: 20;
+    opacity: 0;
+    transition: opacity 0.8s ease;
+  }
+
+  .message-overlay.visible {
+    opacity: 1;
+  }
+
+  .message-overlay.fading {
+    opacity: 0;
+    transition: opacity 1.2s ease;
+  }
+
+  .message-text {
+    font-family: 'KaiTi', 'STKaiti', '楷体', 'FangSong', '仿宋', 'STSong', '华文楷体', serif;
+    font-size: clamp(28px, 6vw, 48px);
+    font-weight: bold;
+    letter-spacing: 4px;
+    text-align: center;
+    background: linear-gradient(
+      135deg,
+      #ff6b9d 0%,
+      #ff8a80 20%,
+      #ffd54f 40%,
+      #ff80ab 60%,
+      #ffab40 80%,
+      #ff6b9d 100%
+    );
+    background-size: 200% 200%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-shadow: none;
+    filter: drop-shadow(0 0 18px rgba(255, 130, 150, 0.7))
+            drop-shadow(0 0 40px rgba(255, 150, 100, 0.4));
+    animation: textShine 3s ease-in-out infinite;
+    padding: 0 20px;
+    line-height: 1.5;
+  }
+
+  @keyframes textShine {
+    0%, 100% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+  }
+
+  .message-emojis {
+    display: flex;
+    gap: 12px;
+    margin-top: 20px;
+    font-size: clamp(22px, 4vw, 32px);
+    animation: emojiBounce 1.5s ease-in-out infinite;
+    flex-wrap: wrap;
+    justify-content: center;
+    padding: 0 20px;
+  }
+
+  .message-emojis span {
+    display: inline-block;
+    animation: emojiFloat 2s ease-in-out infinite;
+    filter: drop-shadow(0 0 8px rgba(255, 200, 200, 0.6));
+  }
+  .message-emojis span:nth-child(1) { animation-delay: 0s; }
+  .message-emojis span:nth-child(2) { animation-delay: 0.15s; }
+  .message-emojis span:nth-child(3) { animation-delay: 0.3s; }
+  .message-emojis span:nth-child(4) { animation-delay: 0.45s; }
+  .message-emojis span:nth-child(5) { animation-delay: 0.6s; }
+  .message-emojis span:nth-child(6) { animation-delay: 0.75s; }
+  .message-emojis span:nth-child(7) { animation-delay: 0.9s; }
+  .message-emojis span:nth-child(8) { animation-delay: 1.05s; }
+
+  @keyframes emojiFloat {
+    0%, 100% { transform: translateY(0) scale(1); }
+    30% { transform: translateY(-8px) scale(1.15); }
+    60% { transform: translateY(0) scale(1); }
+  }
+
+  @keyframes emojiBounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-3px); }
+  }
+</style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <div class="hint" id="hint">轻触夜空，为她燃放烟花</div>
+  <div class="message-overlay" id="messageOverlay">
+    <div class="message-text">张悦炫要天天开心呀</div>
+    <div class="message-emojis">
+      <span>🥰</span>
+      <span>💕</span>
+      <span>✨</span>
+      <span>🌸</span>
+      <span>💖</span>
+      <span>🎀</span>
+      <span>🧸</span>
+      <span>💫</span>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      const canvas = document.getElementById('canvas');
+      const ctx = canvas.getContext('2d');
+      const hint = document.getElementById('hint');
+      const messageOverlay = document.getElementById('messageOverlay');
+
+      let W, H;
+      const stars = [];
+      const fireworks = [];
+      const particles = [];
+      const sparkTrails = [];
+
+      // ── 触摸计数 & 消息状态 ────────────
+      let touchCount = 0;
+      const TOUCHES_TO_TRIGGER = 4;        // 触摸多少次后显示消息
+      let messageTimer = null;
+      let messageActive = false;
+      let cycleCooldown = false;            // 消息淡出后的短暂冷却
+
+      // ── 工具函数 ──────────────────────────
+      function random(min, max) {
+        return Math.random() * (max - min) + min;
+      }
+
+      function randomInt(min, max) {
+        return Math.floor(random(min, max + 1));
+      }
+
+      function hexToRgb(hex) {
+        return {
+          r: (hex >> 16) & 0xff,
+          g: (hex >> 8) & 0xff,
+          b: hex & 0xff,
+        };
+      }
+
+      function lerp(a, b, t) {
+        return a + (b - a) * t;
+      }
+
+      // ── 烟花颜色配置 ──────────────────────
+      const FIREWORK_COLORS = [
+        0xff2d55, // 红
+        0xff6b35, // 橙
+        0xffcc02, // 金
+        0x34c759, // 绿
+        0x5ac8fa, // 蓝
+        0xaf52de, // 紫
+        0xff375f, // 玫红
+        0xff9f0a, // 琥珀
+        0x64d2ff, // 天蓝
+        0x30d158, // 翠绿
+        0xff1493, // 深粉
+        0x00ffff, // 青
+        0xffd700, // 金色
+        0xff4500, // 红橙
+      ];
+
+      // 爱心专用暖色系
+      const HEART_COLORS = [
+        0xff2d55,
+        0xff375f,
+        0xff1493,
+        0xff6b9d,
+        0xff4081,
+        0xf50057,
+        0xe91e63,
+      ];
+
+      // ── 星星背景 ──────────────────────────
+      class Star {
+        constructor() {
+          this.reset(true);
+        }
+
+        reset(init) {
+          this.x = random(0, W);
+          this.y = init ? random(0, H) : -5;
+          this.size = random(0.5, 2.5);
+          this.speed = random(0.15, 1.2);
+          this.opacity = random(0.3, 1.0);
+          this.twinkleSpeed = random(0.005, 0.03);
+          this.twinkleOffset = random(0, Math.PI * 2);
+        }
+
+        update() {
+          this.y += this.speed;
+          if (this.y > H + 5) this.reset(false);
+        }
+
+        draw(ctx) {
+          const twinkle = 0.5 + 0.5 * Math.sin(Date.now() * this.twinkleSpeed + this.twinkleOffset);
+          const alpha = this.opacity * twinkle;
+          ctx.beginPath();
+          ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+          ctx.fill();
+          if (this.size > 1.8 && twinkle > 0.8) {
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.size * 3, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(200,220,255,${alpha * 0.12})`;
+            ctx.fill();
+          }
+        }
+      }
+
+      // ── 上升火花尾迹粒子 ────────────────
+      class SparkTrail {
+        constructor(x, y, color) {
+          this.x = x;
+          this.y = y;
+          this.vx = random(-0.8, 0.8);
+          this.vy = random(-1.5, 0);
+          this.life = 1;
+          this.decay = random(0.02, 0.06);
+          this.size = random(1, 3);
+          this.color = color;
+        }
+
+        update() {
+          this.x += this.vx;
+          this.y += this.vy;
+          this.life -= this.decay;
+          this.size *= 0.98;
+        }
+
+        draw(ctx) {
+          if (this.life <= 0) return;
+          const { r, g, b } = hexToRgb(this.color);
+          ctx.beginPath();
+          ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(${r},${g},${b},${this.life})`;
+          ctx.fill();
+        }
+
+        get dead() {
+          return this.life <= 0;
+        }
+      }
+
+      // ── 烟花上升火箭 ────────────────────
+      class Rocket {
+        constructor(x, y, targetX, targetY, color) {
+          this.x = x;
+          this.y = y;
+          this.startX = x;
+          this.startY = y;
+          this.targetX = targetX;
+          this.targetY = targetY;
+          this.color = color;
+          this.progress = 0;
+          // 放慢速度：手机上看起来更优雅
+          this.speed = random(0.005, 0.013);
+          this.trailTimer = 0;
+          this.trailInterval = 3; // 尾迹间隔帧数
+        }
+
+        update() {
+          this.progress += this.speed;
+          this.trailTimer++;
+          if (this.trailTimer % this.trailInterval === 0) {
+            const tx = lerp(this.startX, this.targetX, this.progress);
+            const ty = lerp(this.startY, this.targetY, this.progress);
+            sparkTrails.push(new SparkTrail(tx, ty, this.color));
+          }
+
+          if (this.progress >= 1) {
+            return true;
+          }
+          return false;
+        }
+
+        draw(ctx) {
+          const cx = lerp(this.startX, this.targetX, this.progress);
+          const cy = lerp(this.startY, this.targetY, this.progress);
+          const { r, g, b } = hexToRgb(this.color);
+
+          // 主光点
+          const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, 10);
+          gradient.addColorStop(0, `rgba(255,255,255,1)`);
+          gradient.addColorStop(0.25, `rgba(${r},${g},${b},0.9)`);
+          gradient.addColorStop(0.6, `rgba(${r},${g},${b},0.3)`);
+          gradient.addColorStop(1, `rgba(${r},${g},${b},0)`);
+
+          ctx.beginPath();
+          ctx.arc(cx, cy, 10, 0, Math.PI * 2);
+          ctx.fillStyle = gradient;
+          ctx.fill();
+
+          // 外层光晕
+          const glow = ctx.createRadialGradient(cx, cy, 2, cx, cy, 20);
+          glow.addColorStop(0, `rgba(255,255,255,0.3)`);
+          glow.addColorStop(1, `rgba(${r},${g},${b},0)`);
+          ctx.beginPath();
+          ctx.arc(cx, cy, 20, 0, Math.PI * 2);
+          ctx.fillStyle = glow;
+          ctx.fill();
+        }
+      }
+
+      // ── 爆炸粒子 ────────────────────────
+      class Particle {
+        constructor(x, y, color, type = 'normal') {
+          this.x = x;
+          this.y = y;
+          this.color = color;
+          this.type = type;
+
+          if (type === 'ring') {
+            const angle = random(0, Math.PI * 2);
+            const ringSpeed = random(2.5, 6);
+            this.vx = Math.cos(angle) * ringSpeed;
+            this.vy = Math.sin(angle) * ringSpeed;
+          } else if (type === 'heart') {
+            const t = random(0, Math.PI * 2);
+            const heartScale = random(0.18, 0.35);
+            this.vx = 16 * Math.pow(Math.sin(t), 3) * heartScale;
+            this.vy = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t)) * heartScale;
+          } else if (type === 'star') {
+            const angle = random(0, Math.PI * 2);
+            const pts = 5;
+            const radius = random(2.5, 6);
+            const starAngle = angle + Math.sin(angle * pts) * 0.5;
+            this.vx = Math.cos(starAngle) * radius;
+            this.vy = Math.sin(starAngle) * radius;
+          } else {
+            const angle = random(0, Math.PI * 2);
+            const speed = random(1.5, 7);
+            this.vx = Math.cos(angle) * speed;
+            this.vy = Math.sin(angle) * speed;
+          }
+
+          this.life = 1;
+          this.decay = random(0.006, 0.022);
+          this.size = random(1.5, 4.5);
+          this.gravity = 0.025;
+          this.friction = 0.985;
+        }
+
+        update() {
+          this.vx *= this.friction;
+          this.vy *= this.friction;
+          this.vy += this.gravity;
+          this.x += this.vx;
+          this.y += this.vy;
+          this.life -= this.decay;
+          this.size *= 0.996;
+        }
+
+        draw(ctx) {
+          if (this.life <= 0) return;
+          const { r, g, b } = hexToRgb(this.color);
+          const alpha = this.life;
+
+          const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size);
+          gradient.addColorStop(0, `rgba(255,255,255,${Math.min(1, alpha * 1.3)})`);
+          gradient.addColorStop(0.4, `rgba(${r},${g},${b},${alpha})`);
+          gradient.addColorStop(1, `rgba(${r},${g},${b},0)`);
+
+          ctx.beginPath();
+          ctx.arc(this.x, this.y, this.size * 2.2, 0, Math.PI * 2);
+          ctx.fillStyle = gradient;
+          ctx.fill();
+        }
+
+        get dead() {
+          return this.life <= 0;
+        }
+      }
+
+      // ── 爆炸函数 ────────────────────────
+      function explode(x, y, color, type = 'normal') {
+        let particleCount;
+        switch (type) {
+          case 'heart':
+            particleCount = randomInt(150, 200);
+            break;
+          case 'ring':
+            particleCount = randomInt(80, 120);
+            break;
+          case 'star':
+            particleCount = randomInt(100, 140);
+            break;
+          default:
+            particleCount = randomInt(80, 150);
+        }
+
+        for (let i = 0; i < particleCount; i++) {
+          particles.push(new Particle(x, y, color, type));
+        }
+
+        // 中心闪光（爱心不加白光，保持纯净粉色）
+        if (type !== 'heart') {
+          for (let i = 0; i < 20; i++) {
+            const p = new Particle(x, y, 0xffffff, 'normal');
+            p.decay = random(0.04, 0.08);
+            p.size = random(1, 2.5);
+            p.gravity = 0.008;
+            particles.push(p);
+          }
+        } else {
+          // 爱心中心加金色小粒子
+          for (let i = 0; i < 30; i++) {
+            const p = new Particle(x, y, 0xffd700, 'normal');
+            p.decay = random(0.03, 0.07);
+            p.size = random(0.8, 1.8);
+            p.gravity = 0.005;
+            particles.push(p);
+          }
+        }
+      }
+
+      // ── 创建烟花 ────────────────────────
+      function createFirework(x, y, forceType = null) {
+        const targetX = x || random(W * 0.15, W * 0.85);
+        const targetY = y || random(H * 0.1, H * 0.5);
+        const startX = targetX + random(-60, 60);
+        const startY = H + 20;
+
+        let type, color;
+
+        if (forceType === 'heart') {
+          type = 'heart';
+          color = HEART_COLORS[randomInt(0, HEART_COLORS.length - 1)];
+        } else {
+          // 约30%概率出现爱心
+          const roll = Math.random();
+          if (roll < 0.3) {
+            type = 'heart';
+            color = HEART_COLORS[randomInt(0, HEART_COLORS.length - 1)];
+          } else if (roll < 0.5) {
+            type = 'ring';
+            color = FIREWORK_COLORS[randomInt(0, FIREWORK_COLORS.length - 1)];
+          } else if (roll < 0.65) {
+            type = 'star';
+            color = FIREWORK_COLORS[randomInt(0, FIREWORK_COLORS.length - 1)];
+          } else {
+            type = 'normal';
+            color = FIREWORK_COLORS[randomInt(0, FIREWORK_COLORS.length - 1)];
+          }
+        }
+
+        fireworks.push({
+          rocket: new Rocket(startX, startY, targetX, targetY, color),
+          color,
+          type,
+        });
+      }
+
+      // ── 连发烟花 ────────────────────────
+      function createBurst(x, y, count = 5) {
+        let delay = 0;
+        // 连发中至少有一个爱心
+        const heartIndex = randomInt(0, count - 1);
+        for (let i = 0; i < count; i++) {
+          setTimeout(() => {
+            const bx = x + random(-50, 50);
+            const by = y + random(-40, 40);
+            createFirework(bx, by, i === heartIndex ? 'heart' : null);
+          }, delay);
+          delay += random(80, 250);
+        }
+      }
+
+      // ── 初始化星星 ──────────────────────
+      function initStars() {
+        stars.length = 0;
+        for (let i = 0; i < 250; i++) {
+          stars.push(new Star());
+        }
+      }
+
+      // ── 调整大小 ────────────────────────
+      function resize() {
+        W = window.innerWidth;
+        H = window.innerHeight;
+        canvas.width = W;
+        canvas.height = H;
+        initStars();
+      }
+
+      // ── 显示消息 ────────────────────────
+      function showMessage() {
+        if (messageActive) return;
+        messageActive = true;
+        hint.style.opacity = '0';
+
+        // 淡入
+        requestAnimationFrame(() => {
+          messageOverlay.classList.remove('fading');
+          messageOverlay.classList.add('visible');
+        });
+
+        // 3.5s 后开始淡出
+        messageTimer = setTimeout(() => {
+          messageOverlay.classList.add('fading');
+          messageOverlay.classList.remove('visible');
+
+          // 淡出动画结束后重置
+          setTimeout(() => {
+            messageOverlay.classList.remove('fading');
+            messageActive = false;
+            touchCount = 0;
+            hint.style.opacity = '';
+
+            // 短暂冷却后允许下一轮
+            setTimeout(() => {
+              cycleCooldown = false;
+            }, 600);
+          }, 1300);
+        }, 3500);
+      }
+
+      // ── 触摸处理 ────────────────────────
+      function handleTouch(x, y) {
+        if (messageActive || cycleCooldown) return;
+
+        // 发射烟花
+        createFirework(x, y);
+
+        // 有小概率额外送一发
+        if (Math.random() < 0.25) {
+          setTimeout(() => {
+            createFirework(x + random(-40, 40), y + random(-30, 20));
+          }, random(120, 300));
+        }
+
+        touchCount++;
+
+        // 隐藏提示
+        if (touchCount >= 1) {
+          hint.style.opacity = '0';
+        }
+
+        // 达到触发数 → 显示消息
+        if (touchCount >= TOUCHES_TO_TRIGGER) {
+          cycleCooldown = true;
+
+          // 先来一波小连发助兴
+          createBurst(x, y, randomInt(3, 5));
+
+          // 延迟显示消息，等连发爆炸完
+          setTimeout(() => {
+            showMessage();
+          }, 1200);
+        }
+      }
+
+      // ── 主循环 ──────────────────────────
+      function animate() {
+        requestAnimationFrame(animate);
+
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.16)';
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.globalCompositeOperation = 'lighter';
+
+        // 星星
+        stars.forEach(s => {
+          s.update();
+          s.draw(ctx);
+        });
+
+        // 尾迹
+        for (let i = sparkTrails.length - 1; i >= 0; i--) {
+          sparkTrails[i].update();
+          sparkTrails[i].draw(ctx);
+          if (sparkTrails[i].dead) sparkTrails.splice(i, 1);
+        }
+
+        // 粒子
+        for (let i = particles.length - 1; i >= 0; i--) {
+          particles[i].update();
+          particles[i].draw(ctx);
+          if (particles[i].dead) particles.splice(i, 1);
+        }
+
+        // 火箭
+        for (let i = fireworks.length - 1; i >= 0; i--) {
+          const fw = fireworks[i];
+          fw.rocket.draw(ctx);
+          const reached = fw.rocket.update();
+          if (reached) {
+            const cx = fw.rocket.targetX;
+            const cy = fw.rocket.targetY;
+            explode(cx, cy, fw.color, fw.type);
+
+            // 爱心爆炸后，有概率在附近出现小的二次爱心
+            if (fw.type === 'heart' && Math.random() < 0.5) {
+              setTimeout(() => {
+                const ox = cx + random(-30, 30);
+                const oy = cy + random(-25, 25);
+                explode(ox, oy, HEART_COLORS[randomInt(0, HEART_COLORS.length - 1)], 'heart');
+              }, random(200, 500));
+            } else if (Math.random() < 0.25) {
+              setTimeout(() => {
+                const ox = cx + random(-35, 35);
+                const oy = cy + random(-35, 35);
+                explode(ox, oy, FIREWORK_COLORS[randomInt(0, FIREWORK_COLORS.length - 1)], 'ring');
+              }, random(150, 400));
+            }
+
+            fireworks.splice(i, 1);
+          }
+        }
+
+        ctx.globalCompositeOperation = 'source-over';
+      }
+
+      // ── 事件监听 ────────────────────────
+      canvas.addEventListener('click', (e) => {
+        handleTouch(e.clientX, e.clientY);
+      });
+
+      canvas.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        const touch = e.touches[0];
+        handleTouch(touch.clientX, touch.clientY);
+      }, { passive: false });
+
+      window.addEventListener('resize', resize);
+
+      // ── 启动 ────────────────────────────
+      resize();
+      animate();
+
+      // 开场烟花
+      setTimeout(() => createFirework(W * 0.35, H * 0.35), 400);
+      setTimeout(() => createFirework(W * 0.65, H * 0.25), 700);
+      setTimeout(() => createFirework(W * 0.5, H * 0.45, 'heart'), 1100);
+    })();
+  </script>
+</body>
+</html>
