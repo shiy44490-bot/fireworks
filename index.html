@@ -144,11 +144,50 @@
     0%, 100% { transform: translateY(0); }
     50% { transform: translateY(-3px); }
   }
+
+  /* ── 彩蛋闪光遮罩 ── */
+  .flash-overlay {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 15;
+    opacity: 0;
+    transition: opacity 0.1s ease;
+    background: radial-gradient(ellipse at center, rgba(255, 130, 160, 0.45) 0%, rgba(255, 80, 120, 0.18) 35%, transparent 65%);
+  }
+
+  .flash-overlay.active {
+    opacity: 1;
+    transition: opacity 0.08s ease;
+  }
+
+  /* ── 流星许愿文字 ── */
+  .star-wish {
+    position: fixed;
+    top: 18%;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255, 225, 190, 0);
+    font-family: 'KaiTi', 'STKaiti', '楷体', serif;
+    font-size: clamp(18px, 3.5vw, 24px);
+    letter-spacing: 4px;
+    pointer-events: none;
+    z-index: 18;
+    transition: opacity 0.5s ease;
+    text-shadow: 0 0 20px rgba(255, 200, 140, 0.9);
+  }
+
+  .star-wish.visible {
+    color: rgba(255, 225, 190, 1);
+  }
 </style>
 </head>
 <body>
   <canvas id="canvas"></canvas>
   <div class="hint" id="hint">轻触夜空，为她燃放烟花</div>
+  <div class="flash-overlay" id="flashOverlay"></div>
+  <div class="star-wish" id="starWish">快许个愿吧 ✨</div>
   <div class="message-overlay" id="messageOverlay">
     <div class="message-text">张悦炫要天天开心呀</div>
     <div class="message-emojis">
@@ -182,6 +221,41 @@
       let messageTimer = null;
       let messageActive = false;
       let cycleCooldown = false;            // 消息淡出后的短暂冷却
+
+      // ── 消息语库 ──────────────────────────
+      const MESSAGES = [
+        '张悦炫要天天开心呀',
+        '你笑起来的样子一定很好看',
+        '今天也是被你点亮的一天',
+        '所有的星星都不如你耀眼',
+        '有你的每一天都值得庆祝',
+        '希望你永远被温柔以待',
+        '今天也要元气满满哦',
+        '小炫是世界上最可爱的女孩子',
+      ];
+      let lastMessageIndex = -1;
+
+      // ── 快速连击彩蛋 ──────────────────────
+      const flash = document.getElementById('flashOverlay');
+      let tapTimestamps = [];
+      const RAPID_TAP_COUNT = 3;
+      const RAPID_TAP_WINDOW = 1000;       // 毫秒内连击N次触发
+      let easterEggActive = false;
+
+      // ── 长按大爱心 ────────────────────────
+      let pressStartTime = 0;
+      let pressX = 0, pressY = 0;
+      let longPressGlow = 0;               // 0→1 光晕进度
+      const LONG_PRESS_DURATION = 650;     // 毫秒
+      let isTouchDevice = false;
+
+      // ── 流星许愿 ──────────────────────────
+      const starWish = document.getElementById('starWish');
+      let shootingStar = null;
+      let shootingStarTimer = null;
+      let starWishTimer = null;
+      const MAGIC_HOUR_START = 21;         // 晚9点
+      const MAGIC_HOUR_END = 2;            // 凌晨2点
 
       // ── 工具函数 ──────────────────────────
       function random(min, max) {
@@ -267,6 +341,77 @@
             ctx.fillStyle = `rgba(200,220,255,${alpha * 0.12})`;
             ctx.fill();
           }
+        }
+      }
+
+      // ── 流星 ──────────────────────────────
+      class ShootingStar {
+        constructor() {
+          this.reset();
+        }
+
+        reset() {
+          // 从上方随机位置斜穿屏幕
+          const side = Math.random();
+          if (side < 0.5) {
+            this.x = random(W * 0.4, W * 0.95);
+            this.y = random(-10, H * 0.08);
+            this.vx = -random(5, 10);
+            this.vy = random(1.5, 3.5);
+          } else {
+            this.x = random(W * 0.05, W * 0.6);
+            this.y = random(-10, H * 0.08);
+            this.vx = random(5, 10);
+            this.vy = random(1.5, 3.5);
+          }
+          this.life = 1;
+          this.decay = random(0.012, 0.025);
+          this.size = random(2, 3.5);
+          this.trail = [];
+          this.maxTrail = 35;
+          this.active = true;
+          this.wishShown = false;
+        }
+
+        update() {
+          // 记录尾迹点
+          this.trail.push({ x: this.x, y: this.y, life: 1 });
+          if (this.trail.length > this.maxTrail) this.trail.shift();
+          // 尾迹衰减
+          this.trail.forEach(t => t.life -= 0.035);
+          this.trail = this.trail.filter(t => t.life > 0);
+
+          this.x += this.vx;
+          this.y += this.vy;
+          this.life -= this.decay;
+          this.size *= 0.998;
+
+          if (this.life <= 0 || this.x < -60 || this.x > W + 60 || this.y > H + 60) {
+            this.active = false;
+          }
+        }
+
+        draw(ctx) {
+          if (!this.active || this.life <= 0) return;
+          // 尾迹
+          for (let i = 0; i < this.trail.length; i++) {
+            const t = this.trail[i];
+            const alpha = (i / this.trail.length) * t.life * 0.55;
+            ctx.beginPath();
+            ctx.arc(t.x, t.y, this.size * 0.5, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(255,240,220,${alpha})`;
+            ctx.fill();
+          }
+          // 流星头部光晕
+          const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, 9);
+          gradient.addColorStop(0, `rgba(255,255,240,${this.life})`);
+          gradient.addColorStop(0.2, `rgba(255,240,210,${this.life * 0.85})`);
+          gradient.addColorStop(0.6, `rgba(255,200,150,${this.life * 0.25})`);
+          gradient.addColorStop(1, `rgba(255,180,120,0)`);
+          ctx.beginPath();
+          ctx.arc(this.x, this.y, 9, 0, Math.PI * 2);
+          ctx.fillStyle = gradient;
+          ctx.fill();
         }
       }
 
@@ -513,6 +658,66 @@
         });
       }
 
+      // ── 长按大爱心 ──────────────────────
+      function createBigHeartFirework(x, y) {
+        const targetX = x;
+        const targetY = random(H * 0.12, H * 0.38);
+        const startX = targetX + random(-25, 25);
+        const startY = H + 20;
+        const color = HEART_COLORS[randomInt(0, HEART_COLORS.length - 1)];
+
+        const rocket = new Rocket(startX, startY, targetX, targetY, color);
+        rocket.speed = random(0.003, 0.006);    // 慢慢升空
+        rocket.trailInterval = 1;                // 尾迹更密
+        rocket._bigHeart = true;
+
+        fireworks.push({
+          rocket,
+          color,
+          type: 'heart',
+          isBigHeart: true,
+        });
+      }
+
+      // ── 流星调度 ────────────────────────
+      function isMagicHour() {
+        const hour = new Date().getHours();
+        return hour >= MAGIC_HOUR_START || hour < MAGIC_HOUR_END;
+      }
+
+      function showStarWish() {
+        starWish.classList.add('visible');
+        clearTimeout(starWishTimer);
+        starWishTimer = setTimeout(() => {
+          starWish.classList.remove('visible');
+        }, 2500);
+      }
+
+      function scheduleShootingStar() {
+        clearTimeout(shootingStarTimer);
+
+        if (!isMagicHour()) {
+          // 非魔法时段，每5分钟检查一次
+          shootingStarTimer = setTimeout(scheduleShootingStar, 300000);
+          return;
+        }
+
+        // 魔法时段（21:00-02:00）：每20-90秒可能出一颗流星
+        const delay = random(20000, 90000);
+        shootingStarTimer = setTimeout(() => {
+          if (!shootingStar || !shootingStar.active) {
+            shootingStar = new ShootingStar();
+            // 流星出现后短暂显示许愿文字
+            setTimeout(() => {
+              if (shootingStar && shootingStar.active && !messageActive) {
+                showStarWish();
+              }
+            }, 600);
+          }
+          scheduleShootingStar();
+        }, delay);
+      }
+
       // ── 连发烟花 ────────────────────────
       function createBurst(x, y, count = 5) {
         let delay = 0;
@@ -545,11 +750,25 @@
         initStars();
       }
 
+      // ── 随机取消息（不连续重复）─────────
+      function getRandomMessage() {
+        let idx;
+        do {
+          idx = randomInt(0, MESSAGES.length - 1);
+        } while (idx === lastMessageIndex && MESSAGES.length > 1);
+        lastMessageIndex = idx;
+        return MESSAGES[idx];
+      }
+
       // ── 显示消息 ────────────────────────
-      function showMessage() {
+      function showMessage(customText) {
         if (messageActive) return;
         messageActive = true;
         hint.style.opacity = '0';
+
+        // 使用自定义文字或随机轮播
+        const msgText = customText || getRandomMessage();
+        document.querySelector('.message-text').textContent = msgText;
 
         // 淡入
         requestAnimationFrame(() => {
@@ -577,9 +796,50 @@
         }, 3500);
       }
 
+      // ── 彩蛋：爱心烟花雨 ────────────────
+      function triggerEasterEgg(x, y) {
+        // 粉色闪光
+        flash.classList.add('active');
+        setTimeout(() => { flash.classList.remove('active'); }, 250);
+
+        // 全屏爱心烟花雨
+        const burstCount = randomInt(10, 14);
+        for (let i = 0; i < burstCount; i++) {
+          setTimeout(() => {
+            const ex = random(W * 0.08, W * 0.92);
+            const ey = random(H * 0.08, H * 0.55);
+            createFirework(ex, ey, 'heart');
+          }, i * random(90, 200));
+        }
+
+        // 延迟显示专属彩蛋消息
+        setTimeout(() => {
+          showMessage('❤️ 在我眼里你最珍贵 ❤️');
+          // 彩蛋消息完全结束后重置标记
+          setTimeout(() => {
+            easterEggActive = false;
+          }, 6000);
+        }, 1600);
+      }
+
       // ── 触摸处理 ────────────────────────
       function handleTouch(x, y) {
-        if (messageActive || cycleCooldown) return;
+        if (messageActive || cycleCooldown || easterEggActive) return;
+
+        // ── 快速连击检测 ──────────────────
+        const now = Date.now();
+        tapTimestamps.push(now);
+        // 清理超出时间窗口的旧记录
+        tapTimestamps = tapTimestamps.filter(t => now - t < RAPID_TAP_WINDOW);
+
+        if (tapTimestamps.length >= RAPID_TAP_COUNT) {
+          // 🎉 触发彩蛋！
+          easterEggActive = true;
+          tapTimestamps = [];
+          touchCount = 0;
+          triggerEasterEgg(x, y);
+          return;
+        }
 
         // 发射烟花
         createFirework(x, y);
@@ -619,7 +879,51 @@
         ctx.fillStyle = 'rgba(0, 0, 0, 0.16)';
         ctx.fillRect(0, 0, W, H);
 
+        // ── 长按光晕提示 ──────────────────
+        if (pressStartTime > 0 && !messageActive && !easterEggActive) {
+          const elapsed = Date.now() - pressStartTime;
+          longPressGlow = Math.min(1, elapsed / LONG_PRESS_DURATION);
+          if (longPressGlow > 0.06) {
+            const alpha = longPressGlow * 0.4;
+            const radius = 16 + longPressGlow * 30;
+            const glow = ctx.createRadialGradient(pressX, pressY, 0, pressX, pressY, radius);
+            glow.addColorStop(0, `rgba(255,160,190,${alpha * 1.4})`);
+            glow.addColorStop(0.4, `rgba(255,110,150,${alpha})`);
+            glow.addColorStop(0.7, `rgba(255,70,120,${alpha * 0.3})`);
+            glow.addColorStop(1, `rgba(255,50,100,0)`);
+            ctx.beginPath();
+            ctx.arc(pressX, pressY, radius, 0, Math.PI * 2);
+            ctx.fillStyle = glow;
+            ctx.fill();
+
+            // 内圈小爱心提示
+            if (longPressGlow > 0.5) {
+              const ha = (longPressGlow - 0.5) * 2 * 0.6;
+              const hs = 6 + longPressGlow * 8;
+              ctx.save();
+              ctx.translate(pressX, pressY - radius - 8);
+              ctx.scale(hs / 16, hs / 16);
+              ctx.beginPath();
+              ctx.moveTo(0, -4);
+              ctx.bezierCurveTo(-8, -10, -16, 0, 0, 12);
+              ctx.bezierCurveTo(16, 0, 8, -10, 0, -4);
+              ctx.fillStyle = `rgba(255,150,180,${ha})`;
+              ctx.fill();
+              ctx.restore();
+            }
+          }
+        }
+
         ctx.globalCompositeOperation = 'lighter';
+
+        // ── 流星 ──────────────────────────
+        if (shootingStar && shootingStar.active) {
+          shootingStar.update();
+          shootingStar.draw(ctx);
+          if (!shootingStar.active) {
+            shootingStar = null;
+          }
+        }
 
         // 星星
         stars.forEach(s => {
@@ -649,7 +953,25 @@
           if (reached) {
             const cx = fw.rocket.targetX;
             const cy = fw.rocket.targetY;
-            explode(cx, cy, fw.color, fw.type);
+
+            if (fw.isBigHeart) {
+              // 大爱心：超大爆炸 + 额外光环
+              explode(cx, cy, fw.color, 'heart');
+              // 追加一圈金色光环粒子
+              for (let i = 0; i < 50; i++) {
+                const p = new Particle(cx, cy, 0xffd700, 'ring');
+                p.decay = random(0.015, 0.04);
+                p.size = random(1.2, 3);
+                p.gravity = 0.01;
+                particles.push(p);
+              }
+              // 延迟显示专属消息
+              setTimeout(() => {
+                showMessage('想把全世界的美好都给你 💝');
+              }, 900);
+            } else {
+              explode(cx, cy, fw.color, fw.type);
+            }
 
             // 爱心爆炸后，有概率在附近出现小的二次爱心
             if (fw.type === 'heart' && Math.random() < 0.5) {
@@ -674,14 +996,78 @@
       }
 
       // ── 事件监听 ────────────────────────
-      canvas.addEventListener('click', (e) => {
-        handleTouch(e.clientX, e.clientY);
+      // 桌面端：mousedown / mouseup
+      canvas.addEventListener('mousedown', (e) => {
+        if (isTouchDevice) return;
+        pressStartTime = Date.now();
+        pressX = e.clientX;
+        pressY = e.clientY;
+        longPressGlow = 0;
       });
 
+      canvas.addEventListener('mousemove', (e) => {
+        if (isTouchDevice) return;
+        if (pressStartTime > 0) {
+          const dx = e.clientX - pressX;
+          const dy = e.clientY - pressY;
+          if (Math.sqrt(dx * dx + dy * dy) > 25) {
+            longPressGlow = 0;
+            pressStartTime = 0;
+          }
+        }
+      });
+
+      canvas.addEventListener('mouseup', (e) => {
+        if (isTouchDevice) return;
+        if (pressStartTime === 0) return;
+        const duration = Date.now() - pressStartTime;
+        const px = pressX, py = pressY;
+        longPressGlow = 0;
+        pressStartTime = 0;
+
+        if (duration >= LONG_PRESS_DURATION) {
+          createBigHeartFirework(px, py);
+        } else {
+          handleTouch(px, py);
+        }
+      });
+
+      // 移动端：touchstart / touchend
       canvas.addEventListener('touchstart', (e) => {
         e.preventDefault();
+        isTouchDevice = true;
         const touch = e.touches[0];
-        handleTouch(touch.clientX, touch.clientY);
+        pressStartTime = Date.now();
+        pressX = touch.clientX;
+        pressY = touch.clientY;
+        longPressGlow = 0;
+      }, { passive: false });
+
+      canvas.addEventListener('touchmove', (e) => {
+        if (pressStartTime > 0) {
+          const touch = e.touches[0];
+          const dx = touch.clientX - pressX;
+          const dy = touch.clientY - pressY;
+          if (Math.sqrt(dx * dx + dy * dy) > 25) {
+            longPressGlow = 0;
+            pressStartTime = 0;
+          }
+        }
+      }, { passive: false });
+
+      canvas.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        if (pressStartTime === 0) return;
+        const duration = Date.now() - pressStartTime;
+        const px = pressX, py = pressY;
+        longPressGlow = 0;
+        pressStartTime = 0;
+
+        if (duration >= LONG_PRESS_DURATION) {
+          createBigHeartFirework(px, py);
+        } else {
+          handleTouch(px, py);
+        }
       }, { passive: false });
 
       window.addEventListener('resize', resize);
@@ -689,6 +1075,7 @@
       // ── 启动 ────────────────────────────
       resize();
       animate();
+      scheduleShootingStar();
 
       // 开场烟花
       setTimeout(() => createFirework(W * 0.35, H * 0.35), 400);
